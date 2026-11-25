@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ระบบจ่ายค่าคอมมิชชั่นพนักงาน (สรุปรายบุคคล + Google Sheets)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    :root {
+      --bg-main: #f1f5f9;
+      --text-main: #0f172a;
+    }
+    body {
+      background-color: var(--bg-main);
+      font-family: "Sarabun", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--text-main);
+    }
+    .navbar-brand { font-weight: 700; letter-spacing: 0.2px; }
+    .card {
+      border: none;
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+    }
+    .card-header {
+      border-radius: 14px 14px 0 0 !important;
+      font-weight: 600;
+      padding: 0.85rem 1.25rem;
+    }
+    .calc-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px;
+      height: 100%;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .calc-box:hover {
+      border-color: #cbd5e1;
+      transform: translateY(-1px);
+    }
+    .calc-label { font-size: 0.78rem; color: #64748b; margin-bottom: 4px; }
+    .calc-value { font-size: 1.05rem; font-weight: 700; color: #0f172a; }
+    .net-highlight {
+      background: #ecfdf5;
+      border: 1.5px solid #10b981;
+    }
+    .net-highlight .calc-value {
+      color: #065f46;
+      font-size: 1.2rem;
+    }
+    .table th, .table td {
+      white-space: nowrap;
+      font-size: 0.86rem;
+      vertical-align: middle;
+    }
+    .badge-friday {
+      background-color: #fef3c7;
+      color: #92400e;
+      border: 1px solid #f59e0b;
+    }
+    .toast-container {
+      z-index: 1090;
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff; }
+      .card { box-shadow: none; border: 1px solid #cbd5e1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top no-print shadow-sm">
+    <div class="container-fluid">
+      <a class="navbar-brand d-flex align-items-center" href="#">
+        <i class="bi bi-cloud-check text-info me-2 fs-5"></i>
+        <span>ระบบจ่ายค่าคอมมิชชั่น <small class="text-info fw-normal d-none d-sm-inline">(Google Sheets Sync)</small></span>
+      </a>
+      <div class="d-flex flex-wrap align-items-center gap-2 my-1">
+        <span id="syncStatusBadge" class="badge bg-secondary py-2 px-2">
+          <i class="bi bi-cloud-slash me-1"></i>ยังไม่ตั้งค่า URL
+        </span>
+        <button type="button" id="btnSyncCloud" class="btn btn-info btn-sm text-dark fw-semibold" onclick="syncFromCloud()">
+          <i class="bi bi-arrow-repeat me-1"></i>ดึงข้อมูลล่าสุด
+        </button>
+        <button type="button" class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#sheetConfigModal">
+          <i class="bi bi-gear me-1"></i>ตั้งค่า Sheet URL
+        </button>
+        <button type="button" class="btn btn-success btn-sm fw-semibold" onclick="exportToExcel()">
+          <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+        </button>
+        <button type="button" class="btn btn-outline-warning btn-sm" onclick="resetDemoData()">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>รีเซ็ตตัวอย่าง
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container-fluid py-4" id="reportArea">
+
+    <!-- Filter Bar -->
+    <div class="card mb-4 no-print">
+      <div class="card-body">
+        <div class="row g-3 align-items-end">
+          <div class="col-md-4">
+            <label for="filterEmployee" class="form-label fw-semibold">
+              <i class="bi bi-funnel me-1 text-primary"></i>กรองตามชื่อพนักงาน
+            </label>
+            <select id="filterEmployee" class="form-select" onchange="renderAll()">
+              <option value="ALL">-- แสดงพนักงานทั้งหมด --</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label for="filterWeek" class="form-label fw-semibold">
+              <i class="bi bi-calendar-week me-1 text-primary"></i>กรองตามสัปดาห์
+            </label>
+            <select id="filterWeek" class="form-select" onchange="renderAll()">
+              <option value="ALL">-- ทุกสัปดาห์ --</option>
+              <option value="W1">สัปดาห์ที่ 1 (วันที่ 1–7)</option>
+              <option value="W2">สัปดาห์ที่ 2 (วันที่ 8–14)</option>
+              <option value="W3">สัปดาห์ที่ 3 (วันที่ 15–21)</option>
+              <option value="W4">สัปดาห์ที่ 4 (วันที่ 22–28)</option>
+              <option value="W5">สัปดาห์ที่ 5 (วันที่ 29–31)</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label for="filterSearch" class="form-label fw-semibold">
+              <i class="bi bi-search me-1 text-primary"></i>ค้นหาเลขที่สัญญา / ประเภท / วันที่
+            </label>
+            <input type="text" id="filterSearch" class="form-control" placeholder="พิมพ์เลขสัญญา, cash หรือ 13 พ.ย.2569..." oninput="renderAll()" />
+          </div>
+          <div class="col-md-2 d-grid">
+            <button type="button" class="btn btn-outline-secondary" onclick="clearFilters()">
+              <i class="bi bi-x-circle me-1"></i>ล้างตัวกรอง
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 1: FORM & CALCULATION -->
+    <div class="card mb-4 no-print">
+      <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-pencil-square me-2"></i>ส่วนที่ 1: บันทึกข้อมูลและคำนวณเบื้องต้น (หัก Bank / VAT / WHT)</span>
+        <span id="formModeBadge" class="badge bg-light text-primary">โหมด: เพิ่มรายการใหม่</span>
+      </div>
+      <div class="card-body">
+        <form id="commissionForm" onsubmit="handleFormSubmit(event)">
+          <input type="hidden" id="editId" value="" />
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label for="empSelect" class="form-label fw-semibold">ชื่อพนักงาน <span class="text-danger">*</span></label>
+              <select id="empSelect" class="form-select" required onchange="recalculatePreview()"></select>
+            </div>
+            <div class="col-md-3">
+              <label for="txDate" class="form-label fw-semibold">วันที่ <span class="text-danger">*</span></label>
+              <input type="date" id="txDate" class="form-control" required onchange="recalculatePreview()" />
+              <div id="lastFridayHint" class="form-text mt-1"></div>
+            </div>
+            <div class="col-md-3">
+              <label for="contractNo" class="form-label fw-semibold">สัญญาเลขที่ <span class="text-danger">*</span></label>
+              <input type="text" id="contractNo" class="form-control" placeholder="เช่น CT-2026-001" required />
+            </div>
+            <div class="col-md-2">
+              <label for="succDetail" class="form-label fw-semibold">Succ-Detail <span class="text-danger">*</span></label>
+              <select id="succDetail" class="form-select" required onchange="onSuccDetailChange()">
+                <option value="cash">cash</option>
+                <option value="repo">repo</option>
+                <option value="collect">collect</option>
+                <option value="X-Day">X-Day</option>
+                <option value="ค่าน้ำมัน">ค่าน้ำมัน</option>
+                <option value="ค่าระยะทาง">ค่าระยะทาง</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-4 align-items-end">
+            <div class="col-md-4">
+              <label for="amountBeforeBank" class="form-label fw-bold text-primary">
+                ช่องที่ 1: ยอดก่อน bank นำจ่าย (บาท) <span class="text-danger">*</span>
+              </label>
+              <input type="number" step="0.01" min="0" id="amountBeforeBank" class="form-control form-control-lg fw-bold" placeholder="0.00" required oninput="recalculatePreview()" />
+            </div>
+            <div class="col-md-4">
+              <label for="companyRateMode" class="form-label fw-bold text-dark">เรทหักเข้าบริษัท (ส่วนที่ 2 ช่องที่ 7)</label>
+              <select id="companyRateMode" class="form-select" onchange="recalculatePreview()">
+                <option value="TIER_1_2">เทียร์ 1 และ 2 — หักเข้าบริษัท 32%</option>
+                <option value="TIER_3">เทียร์ 3 — หักเข้าบริษัท 30%</option>
+                <option value="VIP">VIP — หักเข้าบริษัท 25%</option>
+                <option value="FUEL_15">ค่าน้ำมัน — หักเข้าบริษัท 15%</option>
+                <option value="DIST_0">ค่าระยะทาง — ไม่หักเข้าบริษัท (0%)</option>
+                <option value="CUSTOM">กำหนดเปอร์เซ็นต์เอง...</option>
+              </select>
+            </div>
+            <div class="col-md-2" id="customRateBox" style="display: none;">
+              <label for="customCompanyPct" class="form-label fw-semibold">% หักบริษัทเอง</label>
+              <input type="number" step="0.01" min="0" max="100" id="customCompanyPct" class="form-control" value="0" oninput="recalculatePreview()" />
+            </div>
+            <div class="col-md-2">
+              <label for="whtOverride" class="form-label fw-semibold">WHT 1% (ศุกร์สิ้นเดือน)</label>
+              <select id="whtOverride" class="form-select" onchange="recalculatePreview()">
+                <option value="AUTO">อัตโนมัติตามปฏิทิน</option>
+                <option value="FORCE_YES">บังคับหัก 1%</option>
+                <option value="FORCE_NO">ไม่หัก 1%</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Calculation Preview Boxes -->
+          <div class="row g-2 mb-4">
+            <div class="col-6 col-md-2">
+              <div class="calc-box">
+                <div class="calc-label">ช่องที่ 2: Bank หัก 7% (*7/107)</div>
+                <div class="calc-value text-danger" id="prevBank7">0.00</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-2">
+              <div class="calc-box">
+                <div class="calc-label">ช่องที่ 3: ยอดคงเหลือ</div>
+                <div class="calc-value" id="prevAfterBank">0.00</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-2">
+              <div class="calc-box">
+                <div class="calc-label">ช่องที่ 4: บริษัทหัก VAT 7% (*7/107)</div>
+                <div class="calc-value text-danger" id="prevVat7">0.00</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-2">
+              <div class="calc-box">
+                <div class="calc-label">ช่องที่ 5: ยอดคงเหลือหลัง VAT</div>
+                <div class="calc-value" id="prevAfterVat">0.00</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-2">
+              <div class="calc-box">
+                <div class="calc-label">ช่องที่ 5(ข): WHT 1%</div>
+                <div class="calc-value text-warning" id="prevWht1">0.00</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-2">
+              <div class="calc-box net-highlight">
+                <div class="calc-label">ช่องที่ 6: ยอดสุทธิ (ตัดเศษทิ้ง)</div>
+                <div class="calc-value" id="prevNetFloor">0</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="alert alert-light border d-flex flex-wrap justify-content-between align-items-center gap-3 mb-0">
+            <div class="d-flex flex-wrap gap-4 align-items-center">
+              <div>
+                <small class="text-muted d-block">ช่องที่ 6 ยอดที่ชำระ (ปัดเศษทิ้ง)</small>
+                <div class="input-group input-group-sm" style="width: 175px;">
+                  <input type="number" step="1" min="0" id="manualPaidAmount" class="form-control fw-bold" onchange="onManualPaidChange()" />
+                  <button type="button" class="btn btn-outline-secondary" onclick="resetManualPaid()" title="กลับไปคำนวณอัตโนมัติ">Auto</button>
+                </div>
+              </div>
+              <div>
+                <small class="text-muted d-block">ช่องที่ 7 หักเข้าบริษัท (<span id="prevCompanyPctLabel">32%</span>)</small>
+                <strong class="text-danger" id="prevCompanyCut">0.00</strong>
+              </div>
+              <div>
+                <small class="text-muted d-block">ช่องที่ 8 คงเหลือก่อนหัก 3%</small>
+                <strong id="prevBeforeTax3">0.00</strong>
+              </div>
+              <div>
+                <small class="text-muted d-block">ช่องที่ 9 หักสรรพากร 3%</small>
+                <strong class="text-danger" id="prevTax3">0.00</strong>
+              </div>
+              <div>
+                <small class="text-success d-block fw-bold">ช่องที่ 10 ยอดที่จ่ายทีม CR</small>
+                <strong class="text-success fs-6" id="prevTeamCR">0.00</strong>
+              </div>
+            </div>
+
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-secondary" onclick="cancelEdit()">
+                <i class="bi bi-x me-1"></i>ล้างฟอร์ม / ยกเลิกแก้ไข
+              </button>
+              <button type="submit" id="btnSubmitForm" class="btn btn-primary px-4 fw-semibold">
+                <i class="bi bi-cloud-upload me-1"></i><span id="submitBtnText">บันทึกรายการ</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- SECTION 2: SUMMARY TABLE -->
+    <div class="card mb-4">
+      <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-table me-2"></i>ส่วนที่ 2: ข้อมูลสรุปเบิกจ่ายค่าคอมมิชชั่น</span>
+        <span class="badge bg-info text-dark" id="recordCountBadge">0 รายการ</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-striped table-hover table-bordered mb-0" id="summaryTable">
+            <thead class="table-secondary text-center">
+              <tr>
+                <th>ช่อง 1<br>ลำดับ</th>
+                <th>ช่อง 2<br>ชื่อพนักงาน/โค้ด</th>
+                <th>ช่อง 3<br>วันที่</th>
+                <th>ช่อง 4<br>สัญญาเลขที่</th>
+                <th>ช่อง 5<br>Succ-Detail</th>
+                <th>ช่อง 6<br>ยอดที่ชำระ<br><small class="fw-normal">(ตัดเศษทิ้ง)</small></th>
+                <th>ช่อง 7<br>ยอดหักเข้าบริษัท</th>
+                <th>ช่อง 8<br>คงเหลือก่อน<br>หัก 3%</th>
+                <th>ช่อง 9<br>หักสรรพากร<br>3%</th>
+                <th class="table-success">ช่อง 10<br>ยอดที่จ่าย<br>ทีม CR</th>
+                <th class="no-print">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="summaryTableBody"></tbody>
+            <tfoot class="table-light fw-bold" id="summaryTableFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2.5: EMPLOYEE SUMMARY (สรุปแยกตามรายบุคคล) -->
+    <div class="card mb-4">
+      <div class="card-header text-white d-flex justify-content-between align-items-center" style="background-color: #4f46e5;">
+        <span><i class="bi bi-people-fill me-2"></i>สรุปยอดรวมแยกตามรายบุคคล (เรียงตามยอดจ่ายทีม CR)</span>
+        <span class="badge bg-light text-dark" id="empSummaryCountBadge">8 คน</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover table-bordered mb-0" id="employeeSummaryTable">
+            <thead class="table-light text-center">
+              <tr>
+                <th>ลำดับ</th>
+                <th class="text-start">ชื่อพนักงาน/โค้ด</th>
+                <th>จำนวนรายการ</th>
+                <th>รวมยอดที่ชำระ<br><small class="fw-normal text-muted">(ช่อง 6)</small></th>
+                <th>รวมหักเข้าบริษัท<br><small class="fw-normal text-muted">(ช่อง 7)</small></th>
+                <th>รวมคงเหลือก่อนหัก 3%<br><small class="fw-normal text-muted">(ช่อง 8)</small></th>
+                <th>รวมหักสรรพากร 3%<br><small class="fw-normal text-muted">(ช่อง 9)</small></th>
+                <th class="table-success">ยอดรวมที่จ่ายทีม CR<br><small class="fw-normal">(ช่อง 10 — บาท)</small></th>
+                <th class="no-print">ดูเฉพาะคนนี้</th>
+              </tr>
+            </thead>
+            <tbody id="employeeSummaryBody"></tbody>
+            <tfoot class="table-secondary fw-bold" id="employeeSummaryFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 3: WEEKLY SUMMARY -->
+    <div class="card mb-4">
+      <div class="card-header bg-success text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <span><i class="bi bi-calendar-check me-2"></i>สรุปรายงานแต่ละสัปดาห์ & หักค่าธรรมเนียมการโอนเงินรายสัปดาห์</span>
+        <span id="weeklyGrandTotalBadge" class="badge bg-light text-success fs-6">ยอดโอนสุทธิรวม: 0.00 บาท</span>
+      </div>
+      <div class="card-body">
+        <div class="row g-3" id="weeklySummaryCards"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal: ตั้งค่า Google Apps Script Web App URL -->
+  <div class="modal fade" id="sheetConfigModal" tabindex="-1" aria-labelledby="sheetConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="sheetConfigModalLabel"><i class="bi bi-gear me-2"></i>ตั้งค่าการเชื่อมต่อ Google Sheets Web App URL</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+        </div>
+        <div class="modal-body">
+          <label for="scriptUrlInput" class="form-label fw-semibold">Web App URL (จาก Google Apps Script Deploy)</label>
+          <input type="url" id="scriptUrlInput" class="form-control mb-2" placeholder="https://script.google.com/macros/s/AKfycb.../exec" />
+          <div class="form-text">
+            เมื่อบันทึก URL แล้ว ทุกเครื่องที่เปิดไฟล์นี้และใส่ URL เดียวกัน จะอ่านและบันทึกข้อมูลลง Google Sheets ชุดเดียวกันแบบแชร์ร่วมกันได้ครับ
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+          <button type="button" class="btn btn-primary" onclick="saveScriptUrl()">
+            <i class="bi bi-check2-circle me-1"></i>บันทึกและดึงข้อมูล
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3 no-print">
+    <div id="appToast" class="toast align-items-center border-0 shadow" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div id="appToastBody" class="toast-body fw-semibold"></div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    const DEFAULT_SCRIPT_URL = "";
+
+    const EMPLOYEES = [
+      "2610037(ปัญญา)",
+      "2710013(ชัยยุทธ)",
+      "6210007(นฤดล)",
+      "2310033(พรชัย)",
+      "2310098(สิทธร)",
+      "2810023(อภิชิต)",
+      "2810024(วราภรณ์)",
+      "6310001(เดชา)"
+    ];
+
+    const THAI_SHORT_MONTHS = [
+      "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+      "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+    ];
+
+    const STORAGE_KEY_RECORDS = "cr_commission_records_v2";
+    const STORAGE_KEY_FEES = "cr_weekly_transfer_fees_v2";
+    const STORAGE_KEY_URL = "cr_google_script_url_v2";
+    const DEFAULT_FEES = { W1: 0, W2: 0, W3: 0, W4: 0, W5: 0 };
+
+    let records = [];
+    let weeklyFees = { ...DEFAULT_FEES };
+    let scriptUrl = "";
+    let isManualPaid = false;
+    let isSyncing = false;
+    let toastInstance = null;
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      const toastEl = document.getElementById("appToast");
+      if (toastEl && typeof bootstrap !== "undefined") {
+        toastInstance = new bootstrap.Toast(toastEl, { delay: 3200 });
+      }
+
+      bindTableEvents();
+      populateEmployeeDropdowns();
+      document.getElementById("txDate").value = getTodayISO();
+
+      scriptUrl = localStorage.getItem(STORAGE_KEY_URL) || DEFAULT_SCRIPT_URL || "";
+      document.getElementById("scriptUrlInput").value = scriptUrl;
+
+      loadLocalCache();
+      recalculatePreview();
+      renderAll();
+
+      if (scriptUrl) {
+        await syncFromCloud(true);
+      } else {
+        setSyncStatus("offline", "โหมดเครื่อง (ยังไม่ใส่ Sheet URL)");
+      }
+    });
+
+    // แปลงค่าวันที่ใดๆ (YYYY-MM-DD, Date, หรือ Fri Nov 13 2026 00:00:00 GMT+0700...) เป็น Date object ในเขตเวลาท้องถิ่น
+    function parseDateFlexible(input) {
+      if (!input) return null;
+      if (input instanceof Date) {
+        return Number.isNaN(input.getTime()) ? null : input;
+      }
+      const str = String(input).trim();
+      const isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (isoMatch) {
+        const y = parseInt(isoMatch[1], 10);
+        const m = parseInt(isoMatch[2], 10) - 1;
+        const d = parseInt(isoMatch[3], 10);
+        return new Date(y, m, d);
+      }
+      const parsed = new Date(str);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    // แปลงวันที่เป็นรูปแบบสั้นภาษาไทย เช่น "13 พ.ย.2569"
+    function formatShortThaiDate(dateInput) {
+      if (!dateInput) return "";
+      const dObj = parseDateFlexible(dateInput);
+      if (!dObj) return String(dateInput);
+
+      const day = dObj.getDate();
+      const monthName = THAI_SHORT_MONTHS[dObj.getMonth()] || "";
+      const yearBE = dObj.getFullYear() + 543;
+
+      return `${day} ${monthName}${yearBE}`;
+    }
+
+    function getWeekDateRangeBE(weekKey, referenceDateInput) {
+      const dObj = parseDateFlexible(referenceDateInput) || new Date();
+      const yearCE = dObj.getFullYear();
+      const monthIndex = dObj.getMonth();
+      const monthName = THAI_SHORT_MONTHS[monthIndex] || "";
+      const yearBE = yearCE + 543;
+      const lastDayOfMonth = new Date(yearCE, monthIndex + 1, 0).getDate();
+
+      const bounds = {
+        W1: [1, 7],
+        W2: [8, 14],
+        W3: [15, 21],
+        W4: [22, 28],
+        W5: [29, lastDayOfMonth]
+      };
+      const [startDay, endDay] = bounds[weekKey] || [1, 7];
+      return `${startDay}–${endDay} ${monthName}${yearBE}`;
+    }
+
+    function showToast(message, type = "info") {
+      const toastEl = document.getElementById("appToast");
+      const bodyEl = document.getElementById("appToastBody");
+      if (!toastEl || !bodyEl) return;
+
+      toastEl.className = "toast align-items-center border-0 shadow text-white";
+      if (type === "success") toastEl.classList.add("bg-success");
+      else if (type === "error") toastEl.classList.add("bg-danger");
+      else if (type === "warning") toastEl.classList.add("bg-warning", "text-dark");
+      else toastEl.classList.add("bg-primary");
+
+      bodyEl.textContent = message;
+      if (toastInstance) {
+        toastInstance.show();
+      }
+    }
+
+    function bindTableEvents() {
+      const summaryBody = document.getElementById("summaryTableBody");
+      summaryBody.addEventListener("click", (e) => {
+        const editBtn = e.target.closest(".btn-edit-rec");
+        if (editBtn) {
+          editRecord(editBtn.dataset.id);
+          return;
+        }
+        const delBtn = e.target.closest(".btn-del-rec");
+        if (delBtn) {
+          deleteRecord(delBtn.dataset.id);
+        }
+      });
+
+      const empBody = document.getElementById("employeeSummaryBody");
+      empBody.addEventListener("click", (e) => {
+        const filterBtn = e.target.closest(".btn-filter-emp");
+        if (filterBtn) {
+          filterByEmployee(filterBtn.dataset.emp);
+        }
+      });
+    }
+
+    function getTodayISO() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function populateEmployeeDropdowns() {
+      const empSelect = document.getElementById("empSelect");
+      const filterEmp = document.getElementById("filterEmployee");
+      empSelect.innerHTML = "";
+      EMPLOYEES.forEach(emp => {
+        const opt1 = document.createElement("option");
+        opt1.value = emp;
+        opt1.textContent = emp;
+        empSelect.appendChild(opt1);
+
+        const opt2 = document.createElement("option");
+        opt2.value = emp;
+        opt2.textContent = emp;
+        filterEmp.appendChild(opt2);
+      });
+    }
+
+    function setSyncStatus(state, text) {
+      const badge = document.getElementById("syncStatusBadge");
+      if (state === "ok") {
+        badge.className = "badge bg-success py-2 px-2";
+        badge.innerHTML = `<i class="bi bi-cloud-check me-1"></i>${escapeHtml(text)}`;
+      } else if (state === "syncing") {
+        badge.className = "badge bg-warning text-dark py-2 px-2";
+        badge.innerHTML = `<i class="bi bi-arrow-repeat me-1"></i>${escapeHtml(text)}`;
+      } else if (state === "error") {
+        badge.className = "badge bg-danger py-2 px-2";
+        badge.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>${escapeHtml(text)}`;
+      } else {
+        badge.className = "badge bg-secondary py-2 px-2";
+        badge.innerHTML = `<i class="bi bi-cloud-slash me-1"></i>${escapeHtml(text)}`;
+      }
+    }
+
+    function saveScriptUrl() {
+      const inputVal = document.getElementById("scriptUrlInput").value.trim();
+      if (inputVal && !/^https:\/\/script\.google\.com\//i.test(inputVal)) {
+        showToast("URL ควรขึ้นต้นด้วย https://script.google.com/", "warning");
+      }
+      scriptUrl = inputVal;
+      localStorage.setItem(STORAGE_KEY_URL, scriptUrl);
+
+      const modalEl = document.getElementById("sheetConfigModal");
+      const modal = bootstrap.Modal.getInstance(modalEl);
+      if (modal) modal.hide();
+
+      if (scriptUrl) {
+        syncFromCloud(false);
+      } else {
+        setSyncStatus("offline", "โหมดเครื่อง (ยังไม่ใส่ Sheet URL)");
+        showToast("ยกเลิกการเชื่อมต่อ Sheet URL แล้ว", "info");
+      }
+    }
+
+    function safeParseJSON(raw, fallback) {
+      try {
+        return raw ? JSON.parse(raw) : fallback;
+      } catch {
+        return fallback;
+      }
+    }
+
+    function loadLocalCache() {
+      const savedRecords = safeParseJSON(localStorage.getItem(STORAGE_KEY_RECORDS), null);
+      const savedFees = safeParseJSON(localStorage.getItem(STORAGE_KEY_FEES), null);
+      records = Array.isArray(savedRecords) ? savedRecords : getSampleRecords();
+      weeklyFees = savedFees && typeof savedFees === "object"
+        ? { ...DEFAULT_FEES, ...savedFees }
+        : { ...DEFAULT_FEES };
+    }
+
+    function saveLocalCache() {
+      localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records));
+      localStorage.setItem(STORAGE_KEY_FEES, JSON.stringify(weeklyFees));
+    }
+
+    function getSampleRecords() {
+      return [
+        {
+          id: "rec_1",
+          employee: "2610037(ปัญญา)",
+          date: "2026-11-05",
+          contractNo: "CT-69011",
+          succDetail: "cash",
+          amountBeforeBank: 10700,
+          companyRateMode: "TIER_1_2",
+          customCompanyPct: 32,
+          whtOverride: "AUTO",
+          manualPaidAmount: null
+        },
+        {
+          id: "rec_2",
+          employee: "2710013(ชัยยุทธ)",
+          date: "2026-11-27",
+          contractNo: "CT-69012",
+          succDetail: "collect",
+          amountBeforeBank: 21400,
+          companyRateMode: "TIER_3",
+          customCompanyPct: 30,
+          whtOverride: "AUTO",
+          manualPaidAmount: null
+        }
+      ];
+    }
+
+    async function syncFromCloud(silent = false) {
+      if (!scriptUrl) {
+        showToast("กรุณาตั้งค่า Google Apps Script Web App URL ก่อนครับ", "warning");
+        return;
+      }
+      if (isSyncing) return;
+      isSyncing = true;
+      const btn = document.getElementById("btnSyncCloud");
+      if (btn) btn.disabled = true;
+
+      setSyncStatus("syncing", "กำลังดึงข้อมูลจาก Sheet...");
+      try {
+        const res = await fetch(scriptUrl, { method: "GET", cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.status !== "ok") throw new Error(data.message || "Sync failed");
+
+        if (Array.isArray(data.records)) {
+          records = data.records;
+        }
+        if (data.fees && typeof data.fees === "object") {
+          weeklyFees = { ...DEFAULT_FEES, ...data.fees };
+        }
+        saveLocalCache();
+        renderAll();
+        setSyncStatus("ok", "ซิงก์ Google Sheets แล้ว");
+        if (!silent) showToast("ดึงข้อมูลล่าสุดจาก Google Sheets เรียบร้อย", "success");
+      } catch (err) {
+        console.error(err);
+        setSyncStatus("error", "ซิงก์ไม่สำเร็จ (ใช้ข้อมูลในเครื่อง)");
+        if (!silent) showToast("ดึงข้อมูลไม่สำเร็จ กำลังใช้ข้อมูลสำรองในเครื่อง", "error");
+      } finally {
+        isSyncing = false;
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function postToCloud(payload) {
+      saveLocalCache();
+      if (!scriptUrl) return;
+
+      setSyncStatus("syncing", "กำลังบันทึกขึ้น Google Sheets...");
+      try {
+        const res = await fetch(scriptUrl, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.status !== "ok") throw new Error(data.message || "Post failed");
+        setSyncStatus("ok", "บันทึกขึ้น Google Sheets แล้ว");
+        showToast("บันทึกข้อมูลเรียบร้อยแล้ว", "success");
+      } catch (err) {
+        console.error(err);
+        setSyncStatus("error", "บันทึกบนคลาวด์ไม่สำเร็จ (เก็บในเครื่องแล้ว)");
+        showToast("บันทึกบนคลาวด์ไม่สำเร็จ แต่เก็บไว้ในเครื่องแล้ว", "warning");
+      }
+    }
+
+    async function resetDemoData() {
+      if (!confirm("ต้องการรีเซ็ตข้อมูลทั้งหมดกลับเป็นข้อมูลตัวอย่างเริ่มต้นใช่หรือไม่?")) return;
+      records = getSampleRecords();
+      weeklyFees = { ...DEFAULT_FEES };
+      cancelEdit();
+      renderAll();
+      await postToCloud({ action: "resetDemo", records: records, fees: weeklyFees });
+    }
+
+    function getLastFridayDay(year, monthIndex) {
+      const lastDayOfMonth = new Date(year, monthIndex + 1, 0);
+      const dayOfWeek = lastDayOfMonth.getDay();
+      const offset = (dayOfWeek - 5 + 7) % 7;
+      return lastDayOfMonth.getDate() - offset;
+    }
+
+    function isLastFridayOfMonth(dateInput) {
+      const dObj = parseDateFlexible(dateInput);
+      if (!dObj) return false;
+      const lastFri = getLastFridayDay(dObj.getFullYear(), dObj.getMonth());
+      return dObj.getDate() === lastFri;
+    }
+
+    function getWeekKey(dateInput) {
+      const dObj = parseDateFlexible(dateInput);
+      const day = dObj ? dObj.getDate() : 1;
+      if (day <= 7) return "W1";
+      if (day <= 14) return "W2";
+      if (day <= 21) return "W3";
+      if (day <= 28) return "W4";
+      return "W5";
+    }
+
+    function getWeekLabel(weekKey) {
+      const map = {
+        W1: "สัปดาห์ที่ 1 (วันที่ 1–7)",
+        W2: "สัปดาห์ที่ 2 (วันที่ 8–14)",
+        W3: "สัปดาห์ที่ 3 (วันที่ 15–21)",
+        W4: "สัปดาห์ที่ 4 (วันที่ 22–28)",
+        W5: "สัปดาห์ที่ 5 (วันที่ 29–31)"
+      };
+      return map[weekKey] || weekKey;
+    }
+
+    function getCompanyRatePct(mode, customPct) {
+      switch (mode) {
+        case "TIER_1_2": return 32;
+        case "TIER_3": return 30;
+        case "VIP": return 25;
+        case "FUEL_15": return 15;
+        case "DIST_0": return 0;
+        case "CUSTOM": {
+          const val = parseFloat(customPct);
+          return Number.isFinite(val) ? Math.min(100, Math.max(0, val)) : 0;
+        }
+        default: return 0;
+      }
+    }
+
+    function onSuccDetailChange() {
+      const succ = document.getElementById("succDetail").value;
+      const rateModeEl = document.getElementById("companyRateMode");
+      if (succ === "ค่าน้ำมัน") rateModeEl.value = "FUEL_15";
+      else if (succ === "ค่าระยะทาง") rateModeEl.value = "DIST_0";
+      recalculatePreview();
+    }
+
+    function calculateFullRow(item) {
+      const ch1 = Math.max(0, parseFloat(item.amountBeforeBank) || 0);
+      const ch2 = (ch1 * 7) / 107;
+      const ch3 = ch1 - ch2;
+      const ch4 = (ch3 * 7) / 107;
+      const ch5 = ch3 - ch4;
+
+      let applyWht = false;
+      if (item.whtOverride === "FORCE_YES") applyWht = true;
+      else if (item.whtOverride === "FORCE_NO") applyWht = false;
+      else applyWht = isLastFridayOfMonth(item.date);
+
+      const wht1 = applyWht ? ch5 * 0.01 : 0;
+      const netBeforeFloor = ch5 - wht1;
+      const autoNetFloor = Math.floor(Math.max(0, netBeforeFloor));
+
+      const hasManual = item.manualPaidAmount !== null && item.manualPaidAmount !== undefined && item.manualPaidAmount !== "";
+      const ch6Paid = hasManual
+        ? Math.floor(Math.max(0, parseFloat(item.manualPaidAmount) || 0))
+        : autoNetFloor;
+
+      const companyPct = getCompanyRatePct(item.companyRateMode, item.customCompanyPct);
+      const ch7CompanyCut = ch6Paid * (companyPct / 100);
+      const ch8BeforeTax3 = ch6Paid - ch7CompanyCut;
+      const ch9Tax3 = ch8BeforeTax3 * 0.03;
+      const ch10TeamCR = ch8BeforeTax3 - ch9Tax3;
+
+      return {
+        ch1, ch2, ch3, ch4, ch5, wht1, applyWht, autoNetFloor,
+        ch6Paid, companyPct, ch7CompanyCut, ch8BeforeTax3, ch9Tax3, ch10TeamCR,
+        weekKey: getWeekKey(item.date)
+      };
+    }
+
+    function recalculatePreview() {
+      const dateVal = document.getElementById("txDate").value;
+      const isLastFri = isLastFridayOfMonth(dateVal);
+      const shortDateText = formatShortThaiDate(dateVal);
+      const hintEl = document.getElementById("lastFridayHint");
+      hintEl.innerHTML = isLastFri
+        ? `<span class="badge badge-friday"><i class="bi bi-star-fill me-1"></i>วันที่ ${escapeHtml(shortDateText)} ตรงกับศุกร์สุดท้ายของเดือน (หัก WHT 1% อัตโนมัติ)</span>`
+        : `<span class="text-muted">วันที่ ${escapeHtml(shortDateText)} ไม่ใช่วันศุกร์สุดท้ายของเดือน</span>`;
+
+      const rateMode = document.getElementById("companyRateMode").value;
+      document.getElementById("customRateBox").style.display = rateMode === "CUSTOM" ? "block" : "none";
+
+      const draft = {
+        date: dateVal,
+        amountBeforeBank: parseFloat(document.getElementById("amountBeforeBank").value) || 0,
+        companyRateMode: rateMode,
+        customCompanyPct: parseFloat(document.getElementById("customCompanyPct").value) || 0,
+        whtOverride: document.getElementById("whtOverride").value,
+        manualPaidAmount: isManualPaid ? document.getElementById("manualPaidAmount").value : null
+      };
+
+      const calc = calculateFullRow(draft);
+      document.getElementById("prevBank7").textContent = fmtMoney(calc.ch2);
+      document.getElementById("prevAfterBank").textContent = fmtMoney(calc.ch3);
+      document.getElementById("prevVat7").textContent = fmtMoney(calc.ch4);
+      document.getElementById("prevAfterVat").textContent = fmtMoney(calc.ch5);
+      document.getElementById("prevWht1").textContent = fmtMoney(calc.wht1);
+      document.getElementById("prevNetFloor").textContent = fmtInt(calc.autoNetFloor);
+
+      if (!isManualPaid) {
+        document.getElementById("manualPaidAmount").value = calc.autoNetFloor;
+      }
+
+      document.getElementById("prevCompanyPctLabel").textContent = `${calc.companyPct}%`;
+      document.getElementById("prevCompanyCut").textContent = fmtMoney(calc.ch7CompanyCut);
+      document.getElementById("prevBeforeTax3").textContent = fmtMoney(calc.ch8BeforeTax3);
+      document.getElementById("prevTax3").textContent = fmtMoney(calc.ch9Tax3);
+      document.getElementById("prevTeamCR").textContent = fmtMoney(calc.ch10TeamCR);
+    }
+
+    function onManualPaidChange() {
+      isManualPaid = true;
+      recalculatePreview();
+    }
+
+    function resetManualPaid() {
+      isManualPaid = false;
+      document.getElementById("manualPaidAmount").value = "";
+      recalculatePreview();
+    }
+
+    async function handleFormSubmit(e) {
+      e.preventDefault();
+      const editId = document.getElementById("editId").value;
+      const contractNo = document.getElementById("contractNo").value.trim();
+
+      if (!contractNo) {
+        showToast("กรุณากรอกเลขที่สัญญา", "warning");
+        return;
+      }
+
+      const duplicate = records.find(
+        r => r.contractNo.toLowerCase() === contractNo.toLowerCase() && r.id !== editId
+      );
+      if (duplicate) {
+        const dupDateShort = formatShortThaiDate(duplicate.date);
+        const ok = confirm(`พบสัญญาเลขที่ "${contractNo}" (วันที่ ${dupDateShort}) อยู่แล้วในระบบ ต้องการบันทึกซ้ำใช่หรือไม่?`);
+        if (!ok) return;
+      }
+
+      const recordData = {
+        id: editId || ("rec_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6)),
+        employee: document.getElementById("empSelect").value,
+        date: document.getElementById("txDate").value,
+        contractNo,
+        succDetail: document.getElementById("succDetail").value,
+        amountBeforeBank: Math.max(0, parseFloat(document.getElementById("amountBeforeBank").value) || 0),
+        companyRateMode: document.getElementById("companyRateMode").value,
+        customCompanyPct: Math.max(0, parseFloat(document.getElementById("customCompanyPct").value) || 0),
+        whtOverride: document.getElementById("whtOverride").value,
+        manualPaidAmount: isManualPaid
+          ? Math.floor(Math.max(0, parseFloat(document.getElementById("manualPaidAmount").value) || 0))
+          : null
+      };
+
+      if (editId) {
+        const idx = records.findIndex(r => r.id === editId);
+        if (idx !== -1) records[idx] = recordData;
+      } else {
+        records.push(recordData);
+      }
+
+      cancelEdit();
+      renderAll();
+      await postToCloud({ action: "upsertRecord", record: recordData });
+    }
+
+    function editRecord(id) {
+      const rec = records.find(r => r.id === id);
+      if (!rec) return;
+
+      const dObj = parseDateFlexible(rec.date);
+      const isoDate = dObj
+        ? `${dObj.getFullYear()}-${String(dObj.getMonth() + 1).padStart(2, "0")}-${String(dObj.getDate()).padStart(2, "0")}`
+        : "";
+
+      document.getElementById("editId").value = rec.id;
+      document.getElementById("empSelect").value = rec.employee;
+      document.getElementById("txDate").value = isoDate;
+      document.getElementById("contractNo").value = rec.contractNo;
+      document.getElementById("succDetail").value = rec.succDetail;
+      document.getElementById("amountBeforeBank").value = rec.amountBeforeBank;
+      document.getElementById("companyRateMode").value = rec.companyRateMode;
+      document.getElementById("customCompanyPct").value = rec.customCompanyPct || 0;
+      document.getElementById("whtOverride").value = rec.whtOverride || "AUTO";
+
+      if (rec.manualPaidAmount !== null && rec.manualPaidAmount !== undefined && rec.manualPaidAmount !== "") {
+        isManualPaid = true;
+        document.getElementById("manualPaidAmount").value = rec.manualPaidAmount;
+      } else {
+        isManualPaid = false;
+      }
+
+      document.getElementById("formModeBadge").textContent = `โหมด: กำลังแก้ไขสัญญา ${rec.contractNo} (${formatShortThaiDate(rec.date)})`;
+      document.getElementById("formModeBadge").className = "badge bg-warning text-dark";
+      document.getElementById("submitBtnText").textContent = "บันทึกการแก้ไข";
+
+      recalculatePreview();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    async function deleteRecord(id) {
+      const target = records.find(r => r.id === id);
+      const label = target ? `สัญญา ${target.contractNo} (วันที่ ${formatShortThaiDate(target.date)})` : "รายการนี้";
+      if (!confirm(`ยืนยันการลบ${label}?`)) return;
+
+      records = records.filter(r => r.id !== id);
+      if (document.getElementById("editId").value === id) cancelEdit();
+      renderAll();
+      await postToCloud({ action: "deleteRecord", id: id });
+    }
+
+    function cancelEdit() {
+      document.getElementById("editId").value = "";
+      document.getElementById("contractNo").value = "";
+      document.getElementById("amountBeforeBank").value = "";
+      document.getElementById("companyRateMode").value = "TIER_1_2";
+      document.getElementById("customCompanyPct").value = "0";
+      document.getElementById("whtOverride").value = "AUTO";
+      isManualPaid = false;
+      document.getElementById("formModeBadge").textContent = "โหมด: เพิ่มรายการใหม่";
+      document.getElementById("formModeBadge").className = "badge bg-light text-primary";
+      document.getElementById("submitBtnText").textContent = "บันทึกรายการ";
+      recalculatePreview();
+    }
+
+    function clearFilters() {
+      document.getElementById("filterEmployee").value = "ALL";
+      document.getElementById("filterWeek").value = "ALL";
+      document.getElementById("filterSearch").value = "";
+      renderAll();
+    }
+
+    function filterByEmployee(empName) {
+      document.getElementById("filterEmployee").value = empName;
+      renderAll();
+      document.getElementById("summaryTable").scrollIntoView({ behavior: "smooth" });
+    }
+
+    // ==========================================
+    // AGGREGATION & RENDERING
+    // ==========================================
+    function getFilteredRecords() {
+      const empFilter = document.getElementById("filterEmployee").value;
+      const weekFilter = document.getElementById("filterWeek").value;
+      const searchVal = document.getElementById("filterSearch").value.trim().toLowerCase();
+
+      return records.filter(r => {
+        if (empFilter !== "ALL" && r.employee !== empFilter) return false;
+        const wk = getWeekKey(r.date);
+        if (weekFilter !== "ALL" && wk !== weekFilter) return false;
+        if (searchVal) {
+          const shortThaiDate = formatShortThaiDate(r.date).toLowerCase();
+          const hay = `${r.employee} ${r.contractNo} ${r.succDetail} ${r.date} ${shortThaiDate}`.toLowerCase();
+          if (!hay.includes(searchVal)) return false;
+        }
+        return true;
+      });
+    }
+
+    function computeEmployeeSummaries(list) {
+      const map = new Map();
+      EMPLOYEES.forEach(emp => {
+        map.set(emp, {
+          employee: emp,
+          count: 0,
+          latestDate: "",
+          latestTs: 0,
+          sumCh6: 0,
+          sumCh7: 0,
+          sumCh8: 0,
+          sumCh9: 0,
+          sumCh10: 0
+        });
+      });
+
+      list.forEach(rec => {
+        const c = calculateFullRow(rec);
+        if (!map.has(rec.employee)) {
+          map.set(rec.employee, {
+            employee: rec.employee,
+            count: 0,
+            latestDate: "",
+            latestTs: 0,
+            sumCh6: 0,
+            sumCh7: 0,
+            sumCh8: 0,
+            sumCh9: 0,
+            sumCh10: 0
+          });
+        }
+        const entry = map.get(rec.employee);
+        entry.count += 1;
+        const dObj = parseDateFlexible(rec.date);
+        const ts = dObj ? dObj.getTime() : 0;
+        if (ts >= entry.latestTs && rec.date) {
+          entry.latestTs = ts;
+          entry.latestDate = rec.date;
+        }
+        entry.sumCh6 += c.ch6Paid;
+        entry.sumCh7 += c.ch7CompanyCut;
+        entry.sumCh8 += c.ch8BeforeTax3;
+        entry.sumCh9 += c.ch9Tax3;
+        entry.sumCh10 += c.ch10TeamCR;
+      });
+
+      return Array.from(map.values()).sort((a, b) => b.sumCh10 - a.sumCh10);
+    }
+
+    function renderAll() {
+      const filtered = getFilteredRecords();
+      renderSummaryTable(filtered);
+      renderEmployeeSummary(filtered);
+      renderWeeklySummary(filtered);
+    }
+
+    function renderSummaryTable(list) {
+      const tbody = document.getElementById("summaryTableBody");
+      const tfoot = document.getElementById("summaryTableFoot");
+      document.getElementById("recordCountBadge").textContent = `${list.length} รายการ`;
+
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center py-4 text-muted">ไม่พบข้อมูลตามเงื่อนไขที่เลือก</td></tr>`;
+        tfoot.innerHTML = "";
+        return;
+      }
+
+      let sumCh6 = 0, sumCh7 = 0, sumCh8 = 0, sumCh9 = 0, sumCh10 = 0;
+
+      tbody.innerHTML = list.map((rec, idx) => {
+        const c = calculateFullRow(rec);
+        sumCh6 += c.ch6Paid;
+        sumCh7 += c.ch7CompanyCut;
+        sumCh8 += c.ch8BeforeTax3;
+        sumCh9 += c.ch9Tax3;
+        sumCh10 += c.ch10TeamCR;
+
+        const shortDate = formatShortThaiDate(rec.date);
+        const friBadge = c.applyWht ? `<span class="badge badge-friday ms-1">WHT 1%</span>` : "";
+
+        return `
+          <tr>
+            <td class="text-center">${idx + 1}</td>
+            <td class="fw-semibold">${escapeHtml(rec.employee)}</td>
+            <td class="text-center">${escapeHtml(shortDate)}${friBadge}</td>
+            <td>${escapeHtml(rec.contractNo)}</td>
+            <td><span class="badge bg-secondary">${escapeHtml(rec.succDetail)}</span></td>
+            <td class="text-end fw-bold">${fmtInt(c.ch6Paid)}</td>
+            <td class="text-end text-danger">${fmtMoney(c.ch7CompanyCut)} <small class="text-muted">(${c.companyPct}%)</small></td>
+            <td class="text-end">${fmtMoney(c.ch8BeforeTax3)}</td>
+            <td class="text-end text-danger">${fmtMoney(c.ch9Tax3)}</td>
+            <td class="text-end fw-bold text-success table-success">${fmtMoney(c.ch10TeamCR)}</td>
+            <td class="text-center no-print">
+              <button type="button" class="btn btn-warning btn-sm py-0 px-2 btn-edit-rec" data-id="${escapeHtml(rec.id)}" title="แก้ไข">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button type="button" class="btn btn-danger btn-sm py-0 px-2 btn-del-rec" data-id="${escapeHtml(rec.id)}" title="ลบ">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      tfoot.innerHTML = `
+        <tr>
+          <td colspan="5" class="text-end">รวมทั้งหมด (${list.length} รายการ):</td>
+          <td class="text-end">${fmtInt(sumCh6)}</td>
+          <td class="text-end text-danger">${fmtMoney(sumCh7)}</td>
+          <td class="text-end">${fmtMoney(sumCh8)}</td>
+          <td class="text-end text-danger">${fmtMoney(sumCh9)}</td>
+          <td class="text-end text-success table-success fs-6">${fmtMoney(sumCh10)}</td>
+          <td class="no-print"></td>
+        </tr>
+      `;
+    }
+
+    function renderEmployeeSummary(list) {
+      const tbody = document.getElementById("employeeSummaryBody");
+      const tfoot = document.getElementById("employeeSummaryFoot");
+      const summaries = computeEmployeeSummaries(list);
+      document.getElementById("empSummaryCountBadge").textContent = `${summaries.length} คน`;
+
+      let totCount = 0, totCh6 = 0, totCh7 = 0, totCh8 = 0, totCh9 = 0, totCh10 = 0;
+
+      tbody.innerHTML = summaries.map((s, idx) => {
+        totCount += s.count;
+        totCh6 += s.sumCh6;
+        totCh7 += s.sumCh7;
+        totCh8 += s.sumCh8;
+        totCh9 += s.sumCh9;
+        totCh10 += s.sumCh10;
+
+        const rowMuted = s.count === 0 ? "text-muted" : "";
+        return `
+          <tr class="${rowMuted}">
+            <td class="text-center">${idx + 1}</td>
+            <td class="fw-semibold">${escapeHtml(s.employee)}</td>
+            <td class="text-center"><span class="badge ${s.count > 0 ? "bg-primary" : "bg-light text-muted border"}">${s.count}</span></td>
+            <td class="text-end">${fmtInt(s.sumCh6)}</td>
+            <td class="text-end text-danger">${fmtMoney(s.sumCh7)}</td>
+            <td class="text-end">${fmtMoney(s.sumCh8)}</td>
+            <td class="text-end text-danger">${fmtMoney(s.sumCh9)}</td>
+            <td class="text-end fw-bold text-success table-success">${fmtMoney(s.sumCh10)} บาท</td>
+            <td class="text-center no-print">
+              <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 btn-filter-emp" data-emp="${escapeHtml(s.employee)}">
+                <i class="bi bi-filter"></i> กรองคนนี้
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      tfoot.innerHTML = `
+        <tr>
+          <td colspan="2" class="text-end">รวมทุกบุคคล:</td>
+          <td class="text-center">${totCount}</td>
+          <td class="text-end">${fmtInt(totCh6)}</td>
+          <td class="text-end text-danger">${fmtMoney(totCh7)}</td>
+          <td class="text-end">${fmtMoney(totCh8)}</td>
+          <td class="text-end text-danger">${fmtMoney(totCh9)}</td>
+          <td class="text-end text-success table-success fs-6">${fmtMoney(totCh10)} บาท</td>
+          <td class="no-print"></td>
+        </tr>
+      `;
+    }
+
+    function renderWeeklySummary(list) {
+      const container = document.getElementById("weeklySummaryCards");
+      const badgeEl = document.getElementById("weeklyGrandTotalBadge");
+      const weekKeys = ["W1", "W2", "W3", "W4", "W5"];
+      const refDate = (list[0] && list[0].date) || document.getElementById("txDate").value || getTodayISO();
+      let grandNetAfterFee = 0;
+
+      container.innerHTML = weekKeys.map(wk => {
+        const weekItems = list.filter(r => getWeekKey(r.date) === wk);
+        let grossCR = 0, grossPaid = 0;
+        weekItems.forEach(r => {
+          const c = calculateFullRow(r);
+          grossPaid += c.ch6Paid;
+          grossCR += c.ch10TeamCR;
+        });
+
+        const fee = Math.max(0, parseFloat(weeklyFees[wk]) || 0);
+        const netAfterFee = Math.max(0, grossCR - fee);
+        grandNetAfterFee += netAfterFee;
+        const rangeShortBE = getWeekDateRangeBE(wk, (weekItems[0] && weekItems[0].date) || refDate);
+
+        return `
+          <div class="col-md-6 col-xl-4">
+            <div class="card h-100 border">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <h6 class="fw-bold mb-0 text-primary">${getWeekLabel(wk)}</h6>
+                  <span class="badge bg-light text-dark border">${weekItems.length} รายการ</span>
+                </div>
+                <div class="small text-muted mb-2"><i class="bi bi-calendar3 me-1"></i>${escapeHtml(rangeShortBE)}</div>
+                <hr class="my-2" />
+                <div class="d-flex justify-content-between small mb-1">
+                  <span class="text-muted">รวมยอดที่ชำระ (ช่อง 6):</span>
+                  <span class="fw-semibold">${fmtInt(grossPaid)} บาท</span>
+                </div>
+                <div class="d-flex justify-content-between small mb-2">
+                  <span class="text-muted">รวมยอดจ่ายทีม CR (ช่อง 10):</span>
+                  <span class="fw-bold text-success">${fmtMoney(grossCR)} บาท</span>
+                </div>
+                <div class="mb-2">
+                  <label class="form-label small fw-semibold mb-1">
+                    <i class="bi bi-bank me-1"></i>หักค่าธรรมเนียมโอนเงิน (${wk}):
+                  </label>
+                  <div class="input-group input-group-sm">
+                    <select class="form-select" style="max-width: 120px;" onchange="onPresetFeeChange('${wk}', this.value)">
+                      <option value="">เลือกเรท...</option>
+                      <option value="0" ${fee === 0 ? "selected" : ""}>0 บาท</option>
+                      <option value="10" ${fee === 10 ? "selected" : ""}>10 บาท</option>
+                      <option value="15" ${fee === 15 ? "selected" : ""}>15 บาท</option>
+                      <option value="20" ${fee === 20 ? "selected" : ""}>20 บาท</option>
+                      <option value="25" ${fee === 25 ? "selected" : ""}>25 บาท</option>
+                      <option value="30" ${fee === 30 ? "selected" : ""}>30 บาท</option>
+                    </select>
+                    <input type="number" step="0.01" min="0" class="form-control text-end" value="${fee}" onchange="onCustomFeeChange('${wk}', this.value)" />
+                    <span class="input-group-text">บาท</span>
+                  </div>
+                </div>
+                <div class="p-2 rounded bg-light border d-flex justify-content-between align-items-center mt-2">
+                  <span class="small fw-bold">ยอดโอนสุทธิหลังหักค่าโอน:</span>
+                  <span class="fw-bold text-primary fs-6">${fmtMoney(netAfterFee)} บาท</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      if (badgeEl) {
+        badgeEl.textContent = `ยอดโอนสุทธิรวม: ${fmtMoney(grandNetAfterFee)} บาท`;
+      }
+    }
+
+    async function onPresetFeeChange(wk, val) {
+      if (val === "") return;
+      weeklyFees[wk] = Math.max(0, parseFloat(val) || 0);
+      renderWeeklySummary(getFilteredRecords());
+      await postToCloud({ action: "saveFees", fees: weeklyFees });
+    }
+
+    async function onCustomFeeChange(wk, val) {
+      weeklyFees[wk] = Math.max(0, parseFloat(val) || 0);
+      renderWeeklySummary(getFilteredRecords());
+      await postToCloud({ action: "saveFees", fees: weeklyFees });
+    }
+
+    // ==========================================
+    // EXPORT EXCEL (3 SHEETS)
+    // ==========================================
+    function exportToExcel() {
+      if (typeof XLSX === "undefined") {
+        showToast("ไม่พบไลบรารี XLSX สำหรับสร้างไฟล์ Excel", "error");
+        return;
+      }
+      const list = getFilteredRecords();
+      if (list.length === 0) {
+        showToast("ไม่มีข้อมูลสำหรับส่งออกเป็น Excel", "warning");
+        return;
+      }
+
+      const refDate = (list[0] && list[0].date) || document.getElementById("txDate").value || getTodayISO();
+
+      const rows = list.map((rec, idx) => {
+        const c = calculateFullRow(rec);
+        return {
+          "ลำดับ": idx + 1,
+          "สัปดาห์": getWeekLabel(c.weekKey),
+          "ช่วงวันที่ของสัปดาห์": getWeekDateRangeBE(c.weekKey, rec.date),
+          "ชื่อพนักงาน/โค้ด": rec.employee,
+          "วันที่": formatShortThaiDate(rec.date),
+          "สัญญาเลขที่": rec.contractNo,
+          "Succ-Detail": rec.succDetail,
+          "ยอดก่อน bank นำจ่าย": Number(c.ch1.toFixed(2)),
+          "Bank หัก 7%": Number(c.ch2.toFixed(2)),
+          "ยอดคงเหลือหลัง Bank": Number(c.ch3.toFixed(2)),
+          "บริษัทหัก VAT 7%": Number(c.ch4.toFixed(2)),
+          "ยอดคงเหลือหลัง VAT": Number(c.ch5.toFixed(2)),
+          "WHT 1%": Number(c.wht1.toFixed(2)),
+          "ยอดที่ชำระ (ตัดเศษทิ้ง)": c.ch6Paid,
+          "เรทหักเข้าบริษัท (%)": c.companyPct,
+          "ยอดหักเข้าบริษัท": Number(c.ch7CompanyCut.toFixed(2)),
+          "ยอดคงเหลือก่อนหัก 3%": Number(c.ch8BeforeTax3.toFixed(2)),
+          "หักค่าสรรพากร 3%": Number(c.ch9Tax3.toFixed(2)),
+          "ยอดที่จ่ายทีม CR": Number(c.ch10TeamCR.toFixed(2))
+        };
+      });
+
+      const empSummaries = computeEmployeeSummaries(list).map((s, idx) => ({
+        "ลำดับ": idx + 1,
+        "ชื่อพนักงาน/โค้ด": s.employee,
+        "จำนวนรายการ": s.count,
+        "วันที่ทำรายการล่าสุด": s.latestDate ? formatShortThaiDate(s.latestDate) : "-",
+        "รวมยอดที่ชำระ (ช่อง 6)": s.sumCh6,
+        "รวมหักเข้าบริษัท (ช่อง 7)": Number(s.sumCh7.toFixed(2)),
+        "รวมคงเหลือก่อนหัก 3% (ช่อง 8)": Number(s.sumCh8.toFixed(2)),
+        "รวมหักสรรพากร 3% (ช่อง 9)": Number(s.sumCh9.toFixed(2)),
+        "ยอดรวมที่จ่ายทีม CR (ช่อง 10)": Number(s.sumCh10.toFixed(2))
+      }));
+
+      let totalWeekCount = 0;
+      let totalWeekGrossCR = 0;
+      let totalWeekFee = 0;
+      let totalWeekNet = 0;
+
+      const weekRows = ["W1", "W2", "W3", "W4", "W5"].map(wk => {
+        const items = list.filter(r => getWeekKey(r.date) === wk);
+        const grossCR = items.reduce((acc, r) => acc + calculateFullRow(r).ch10TeamCR, 0);
+        const fee = Math.max(0, parseFloat(weeklyFees[wk]) || 0);
+        const net = Math.max(0, grossCR - fee);
+
+        totalWeekCount += items.length;
+        totalWeekGrossCR += grossCR;
+        totalWeekFee += fee;
+        totalWeekNet += net;
+
+        return {
+          "สัปดาห์": getWeekLabel(wk),
+          "ช่วงวันที่": getWeekDateRangeBE(wk, (items[0] && items[0].date) || refDate),
+          "จำนวนรายการ": items.length,
+          "รวมยอดจ่ายทีม CR": Number(grossCR.toFixed(2)),
+          "ค่าธรรมเนียมโอนเงิน": Number(fee.toFixed(2)),
+          "ยอดโอนสุทธิ": Number(net.toFixed(2))
+        };
+      });
+
+      weekRows.push({
+        "สัปดาห์": "รวมทั้งหมด",
+        "ช่วงวันที่": "-",
+        "จำนวนรายการ": totalWeekCount,
+        "รวมยอดจ่ายทีม CR": Number(totalWeekGrossCR.toFixed(2)),
+        "ค่าธรรมเนียมโอนเงิน": Number(totalWeekFee.toFixed(2)),
+        "ยอดโอนสุทธิ": Number(totalWeekNet.toFixed(2))
+      });
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "รายการเบิกจ่าย");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(empSummaries), "สรุปรายบุคคล");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(weekRows), "สรุปรายสัปดาห์และค่าโอน");
+
+      XLSX.writeFile(wb, `commission_report_${formatShortThaiDate(getTodayISO()).replace(/\s+/g, "_")}.xlsx`);
+      showToast("ส่งออกไฟล์ Excel เรียบร้อยแล้ว", "success");
+    }
+
+    function fmtMoney(num) {
+      return (Number(num) || 0).toLocaleString("th-TH", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function fmtInt(num) {
+      return Math.floor(Number(num) || 0).toLocaleString("th-TH");
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+  </script>
+</body>
+</html>
